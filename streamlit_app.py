@@ -120,7 +120,7 @@ def make_box(x0, x1, y0, y1, z0, z1, color, opacity=1.0):
 
 def make_car(x_center: float) -> list:
     """Safely loads an external 3D model, handles multi-part scenes, and auto-scales it."""
-    car_files = ["car.obj", "scene.obj", "model.obj", "car.gltf", "car.glb"]
+    car_files = ["car.obj", "scene.gltf", "model.obj", "car.gltf", "car.glb"]
     found_file = None
     
     for f in car_files:
