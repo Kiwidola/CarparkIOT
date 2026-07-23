@@ -60,7 +60,7 @@ def get_latest_status(df: pd.DataFrame):
     return slot_statuses
 
 # ----------------------------------------------------------------------
-# 3D Geometry Helpers (.STL Model with Fixed Orientation + Fallback)
+# 3D Geometry Helpers (.STL Model with Natural Floor Alignment + Fallback)
 # ----------------------------------------------------------------------
 SLOT_WIDTH = 3.0     
 SLOT_DEPTH = 5.0     
@@ -119,7 +119,7 @@ def make_box(x0, x1, y0, y1, z0, z1, color, opacity=1.0):
     )
 
 def make_car(x_center: float) -> list:
-    """Loads a local .stl 3D car model, fixes the upside-down and facing direction, and positions it."""
+    """Loads a local .stl 3D car model, sits it flat on its wheels, auto-scales, and positions it."""
     stl_files = ["car.stl", "scene.stl", "model.stl"]
     found_file = None
     
@@ -140,28 +140,14 @@ def make_car(x_center: float) -> list:
                 vertices = mesh.vertices
                 faces = mesh.faces
                 
-                # Center before rotating
-                vertices = vertices - vertices.mean(axis=0)
-                
-                # Apply corrected rotations:
-                # 1. Rotate around Z by 270 degrees to correct heading direction
-                angle_z = np.radians(270)
+                # Optional heading adjustment (change to 0, 90, 180, or 270 if it faces sideways)
+                angle_z = np.radians(0)
                 R_z = np.array([
                     [np.cos(angle_z), -np.sin(angle_z), 0],
                     [np.sin(angle_z), np.cos(angle_z), 0],
                     [0, 0, 1]
                 ])
-                
-                # 2. Rotate around X by 90 degrees to flip it right-side up onto its wheels
-                angle_x = np.radians(90)
-                R_x = np.array([
-                    [1, 0, 0],
-                    [0, np.cos(angle_x), -np.sin(angle_x)],
-                    [0, np.sin(angle_x), np.cos(angle_x)]
-                ])
-                
                 vertices = np.dot(vertices, R_z.T)
-                vertices = np.dot(vertices, R_x.T)
                 
                 # Auto-scale to fit inside the parking slot nicely
                 extents = mesh.extents
@@ -171,13 +157,15 @@ def make_car(x_center: float) -> list:
                     scale_factor = target_size / max_extent
                     vertices = vertices * scale_factor
                 
-                # Final centering check
-                vertices_centered = vertices - vertices.mean(axis=0)
+                # Center X and Y, and pin Z minimum to 0 so wheels sit flat on the floor
+                vertices[:, 0] -= vertices[:, 0].mean()
+                vertices[:, 1] -= vertices[:, 1].mean()
+                vertices[:, 2] -= vertices[:, 2].min()
                 
                 car_trace = go.Mesh3d(
-                    x=vertices_centered[:, 0] + x_center,
-                    y=vertices_centered[:, 1] + (SLOT_DEPTH / 2),
-                    z=vertices_centered[:, 2] + 0.35, # Lift slightly above floor
+                    x=vertices[:, 0] + x_center,
+                    y=vertices[:, 1] + (SLOT_DEPTH / 2),
+                    z=vertices[:, 2] + 0.02, # Lift slightly above floor to prevent clipping
                     i=faces[:, 0],
                     j=faces[:, 1],
                     k=faces[:, 2],
