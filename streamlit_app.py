@@ -120,7 +120,7 @@ def make_box(x0, x1, y0, y1, z0, z1, color, opacity=1.0):
 
 def make_car(x_center: float) -> list:
     """Loads an external 'car.obj' file if available, otherwise falls back to geometric shapes."""
-    car_file = "car.obj"
+    car_file = "scene.gltf"
     
     if TRIMESH_AVAILABLE and os.path.exists(car_file):
         try:
