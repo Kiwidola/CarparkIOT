@@ -187,6 +187,9 @@ def build_parking_scene(slot_statuses: list) -> go.Figure:
 # App layout & Execution
 # ----------------------------------------------------------------------
 def main():
+    # --- Title ---
+    st.title("Car parking system using iot")
+    
     # --- Top Control ---
     if st.button("🔄 Refresh Data"):
         fetch_parking_data.clear()   
