@@ -2,7 +2,7 @@
 Car parking system using iot
 ------------------------------
 A Streamlit app that fetches live parking-slot status data from a public
-Google Sheets CSV export, renders an interactive 3D lot with clean geometric 
+Google Sheets CSV export, renders an interactive 3D lot with detailed geometric 
 cars using Plotly, and displays a color-coded history table.
 """
 
@@ -52,7 +52,7 @@ def get_latest_status(df: pd.DataFrame):
     return slot_statuses
 
 # ----------------------------------------------------------------------
-# 3D Geometry Helpers (Plotly Clean Car Model)
+# 3D Geometry Helpers (Plotly Detailed Car Model)
 # ----------------------------------------------------------------------
 SLOT_WIDTH = 3.0     
 SLOT_DEPTH = 5.0     
@@ -111,27 +111,47 @@ def make_box(x0, x1, y0, y1, z0, z1, color, opacity=1.0):
     )
 
 def make_car(x_center: float) -> list:
-    """Builds a neat 3D car model out of geometric shapes."""
-    car_width = SLOT_WIDTH * 0.6
-    car_length = SLOT_DEPTH * 0.6
+    """Builds a highly detailed 3D car model with wheels, chassis, and roof cabin."""
+    car_width = SLOT_WIDTH * 0.62
+    car_length = SLOT_DEPTH * 0.65
+    
     x0 = x_center - car_width / 2
     x1 = x_center + car_width / 2
-    y0 = SLOT_DEPTH / 2 - car_length / 2
-    y1 = SLOT_DEPTH / 2 + car_length / 2
+    y_center = SLOT_DEPTH / 2
+    y0 = y_center - car_length / 2
+    y1 = y_center + car_length / 2
 
-    # Sleek blue car body
-    body = make_box(x0, x1, y0, y1, 0.15, 0.75, color="#2563eb")
+    traces = []
 
-    # Car cabin roof
-    cabin_margin_x = car_width * 0.15
-    cabin_margin_y = car_length * 0.25
+    # 1. Wheels (4 distinct tires)
+    wheel_w = 0.12
+    wheel_l = 0.9
+    wheel_h = 0.28
+    
+    wx_offset = car_width / 2 - 0.02
+    wy_offset = car_length * 0.28
+    
+    # Left and Right Wheel pairs
+    for wx in [x_center - wx_offset - wheel_w, x_center + wx_offset]:
+        for wy in [y_center - wy_offset, y_center + wy_offset - 0.1]:
+            traces.append(make_box(wx, wx + wheel_w, wy, wy + wheel_l, 0.04, wheel_h, color="#0f172a"))
+
+    # 2. Lower Main Body / Chassis
+    body = make_box(x0, x1, y0, y1, 0.25, 0.68, color="#2563eb")
+    traces.append(body)
+
+    # 3. Cabin / Roof Greenhouse (Tapered)
+    cabin_margin_x = car_width * 0.14
+    cabin_y0 = y0 + car_length * 0.26
+    cabin_y1 = y1 - car_length * 0.22
     cabin = make_box(
         x0 + cabin_margin_x, x1 - cabin_margin_x,
-        y0 + cabin_margin_y, y1 - cabin_margin_y,
-        0.75, 1.25, color="#1d4ed8",
+        cabin_y0, cabin_y1,
+        0.68, 1.22, color="#1d4ed8",
     )
+    traces.append(cabin)
 
-    return [body, cabin]
+    return traces
 
 def build_parking_scene(slot_statuses: list) -> go.Figure:
     fig = go.Figure()
