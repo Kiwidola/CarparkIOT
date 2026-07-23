@@ -3,7 +3,10 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
+from parking3d import build_parking_scene
 
+fig = build_parking_scene(slot_status)
+st.plotly_chart(fig, use_container_width=True)
 st.set_page_config(
     page_title="Smart Parking Dashboard",
     page_icon="🚗",
