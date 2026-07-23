@@ -119,9 +119,8 @@ def make_box(x0, x1, y0, y1, z0, z1, color, opacity=1.0):
     )
 
 def make_car(x_center: float) -> list:
-    """Safely loads an external 3D model, handles multi-part scenes, and auto-scales it."""
-    # Expanded list of common Sketchfab export filenames
-    car_files = ["scene.gltf", "scene.glb", "scene.obj", "model.obj", "car.obj", "car.gltf", "car.glb"]
+    """Loads an external 3D model and displays any errors if it fails."""
+    car_files = ["scene.gltf", "scene.glb", "scene.obj", "model.obj", "car.obj", "car.gltf"]
     found_file = None
     
     for f in car_files:
@@ -129,52 +128,62 @@ def make_car(x_center: float) -> list:
             found_file = f
             break
     
-    if TRIMESH_AVAILABLE and found_file:
-        try:
-            loaded = trimesh.load(found_file)
-            
-            # Handle multi-part Sketchfab scenes vs single meshes
-            if isinstance(loaded, trimesh.Scene):
-                mesh = loaded.dump(concatenate=True)
-            else:
-                mesh = loaded
-                
-            if isinstance(mesh, trimesh.Trimesh) and len(mesh.vertices) > 0:
-                vertices = mesh.vertices
-                faces = mesh.faces
-                
-                # Auto-scale the model to fit nicely inside the parking slot dimensions
-                extents = mesh.extents
-                max_extent = max(extents)
-                if max_extent > 0:
-                    target_size = SLOT_DEPTH * 0.65
-                    scale_factor = target_size / max_extent
-                    vertices = vertices * scale_factor
-                
-                # Center and position it inside the slot
-                vertices_centered = vertices - vertices.mean(axis=0)
-                
-                car_trace = go.Mesh3d(
-                    x=vertices_centered[:, 0] + x_center,
-                    y=vertices_centered[:, 1] + (SLOT_DEPTH / 2),
-                    z=vertices_centered[:, 2] + 0.35, # Lift slightly above the floor
-                    i=faces[:, 0],
-                    j=faces[:, 1],
-                    k=faces[:, 2],
-                    color="#2563eb",
-                    flatshading=False,
-                    hoverinfo="skip",
-                    name="",
-                )
-                return [car_trace]
-        except Exception as e:
-            st.warning(f"Found '{found_file}', but error parsing 3D mesh: {e}")
+    if not TRIMESH_AVAILABLE:
+        st.error("Trimesh library is not installed. Run: pip install trimesh")
+        return []
 
-    # Fallback procedural car model if file is missing
-    # (If you see this, check that your model file is in the same directory as app.py)
+    if not found_file:
+        st.error("No 3D car model file found in the folder! Make sure 'scene.gltf' or 'scene.obj' is in the same directory as app.py.")
+        # Fallback to procedural shape so app doesn't break
+        return get_fallback_car(x_center)
+
+    try:
+        loaded = trimesh.load(found_file)
+        
+        if isinstance(loaded, trimesh.Scene):
+            mesh = loaded.dump(concatenate=True)
+        else:
+            mesh = loaded
+            
+        if not isinstance(mesh, trimesh.Trimesh) or len(mesh.vertices) == 0:
+            st.error(f"Loaded {found_file}, but the mesh contains no vertices.")
+            return get_fallback_car(x_center)
+
+        vertices = mesh.vertices
+        faces = mesh.faces
+        
+        # Auto-scale and center
+        extents = mesh.extents
+        max_extent = max(extents)
+        if max_extent > 0:
+            target_size = SLOT_DEPTH * 0.65
+            scale_factor = target_size / max_extent
+            vertices = vertices * scale_factor
+        
+        vertices_centered = vertices - vertices.mean(axis=0)
+        
+        car_trace = go.Mesh3d(
+            x=vertices_centered[:, 0] + x_center,
+            y=vertices_centered[:, 1] + (SLOT_DEPTH / 2),
+            z=vertices_centered[:, 2] + 0.35,
+            i=faces[:, 0],
+            j=faces[:, 1],
+            k=faces[:, 2],
+            color="#2563eb",
+            flatshading=False,
+            hoverinfo="skip",
+            name="",
+        )
+        return [car_trace]
+
+    except Exception as e:
+        st.error(f"Error parsing 3D model '{found_file}': {e}")
+        return get_fallback_car(x_center)
+
+def get_fallback_car(x_center: float) -> list:
+    """Procedural backup car."""
     car_width = SLOT_WIDTH * 0.62
     car_length = SLOT_DEPTH * 0.65
-    
     x0 = x_center - car_width / 2
     x1 = x_center + car_width / 2
     y_center = SLOT_DEPTH / 2
@@ -182,19 +191,13 @@ def make_car(x_center: float) -> list:
     y1 = y_center + car_length / 2
 
     traces = []
-    
-    # Wheels
-    wheel_w = 0.12
-    wheel_l = 0.9
-    wheel_h = 0.28
-    wx_offset = car_width / 2 - 0.02
-    wy_offset = car_length * 0.28
+    wheel_w, wheel_l, wheel_h = 0.12, 0.9, 0.28
+    wx_offset, wy_offset = car_width / 2 - 0.02, car_length * 0.28
     
     for wx in [x_center - wx_offset - wheel_w, x_center + wx_offset]:
         for wy in [y_center - wy_offset, y_center + wy_offset - 0.1]:
             traces.append(make_box(wx, wx + wheel_w, wy, wy + wheel_l, 0.04, wheel_h, color="#0f172a"))
 
-    # Chassis & Cabin
     traces.append(make_box(x0, x1, y0, y1, 0.25, 0.68, color="#2563eb"))
     cabin_margin_x = car_width * 0.14
     traces.append(make_box(
@@ -202,7 +205,6 @@ def make_car(x_center: float) -> list:
         y0 + car_length * 0.26, y1 - car_length * 0.22,
         0.68, 1.22, color="#1d4ed8",
     ))
-
     return traces
 
 def build_parking_scene(slot_statuses: list) -> go.Figure:
