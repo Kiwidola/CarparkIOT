@@ -44,8 +44,11 @@ def get_latest_status(df: pd.DataFrame):
     
     # Normalise text so "free"/"FREE"/" Free " all behave the same way.
     slot_statuses = []
-    for col in (3, 4, 5):
-        raw_value = str(last_row[col]).strip().lower()
+    
+    # We use negative indexing (-3, -2, -1) to always grab the LAST 3 columns.
+    # This prevents the "KeyError: 5" if the spreadsheet structure shifts.
+    for i in range(-3, 0):
+        raw_value = str(last_row.iloc[i]).strip().lower()
         status = "Occupied" if "occ" in raw_value else "Free"
         slot_statuses.append(status)
 
@@ -216,12 +219,18 @@ def main():
     st.subheader("Parking Log History")
     
     if data is not None:
-        # Create a clean copy of the data for the history table
         history_df = data.copy()
         
-        # Add proper column headers based on your spreadsheet structure
-        history_df.columns = ["ID", "Timestamp", "Sensor Log", "Slot 1", "Slot 2", "Slot 3"]
-        
+        # Dynamically set headers based on how many columns actually exist
+        # This prevents crashes if the ID column goes missing!
+        num_cols = len(history_df.columns)
+        if num_cols == 6:
+            history_df.columns = ["ID", "Timestamp", "Sensor Log", "Slot 1", "Slot 2", "Slot 3"]
+        elif num_cols == 5:
+            history_df.columns = ["Timestamp", "Sensor Log", "Slot 1", "Slot 2", "Slot 3"]
+        else:
+            history_df.columns = [f"Data Column {i+1}" for i in range(num_cols)]
+            
         # Reverse the dataframe so the newest logs appear at the top
         history_df = history_df.iloc[::-1].reset_index(drop=True)
         
