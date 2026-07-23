@@ -232,7 +232,7 @@ def main():
         else:
             history_df.columns = [f"Data Column {i+1}" for i in range(num_cols)]
             
-        # REMOVE the 3_Sec_Log / Sensor Log column completely
+        # REMOVE the Sensor Log column completely
         if "Sensor Log" in history_df.columns:
             history_df = history_df.drop(columns=["Sensor Log"])
             
