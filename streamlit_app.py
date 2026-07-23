@@ -3,10 +3,11 @@ Car parking system using iot
 ------------------------------
 A Streamlit app that fetches live parking-slot status data from a public
 Google Sheets CSV export, renders an interactive 3D lot with local .stl car model support 
-using Plotly and Trimesh, and displays a color-coded history table.
+(including 90° counter-clockwise rotation and 90° flip), and displays a color-coded history table.
 """
 
 import os
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -59,7 +60,7 @@ def get_latest_status(df: pd.DataFrame):
     return slot_statuses
 
 # ----------------------------------------------------------------------
-# 3D Geometry Helpers (.STL Model + Fallback)
+# 3D Geometry Helpers (.STL Model with Rotations + Fallback)
 # ----------------------------------------------------------------------
 SLOT_WIDTH = 3.0     
 SLOT_DEPTH = 5.0     
@@ -118,7 +119,7 @@ def make_box(x0, x1, y0, y1, z0, z1, color, opacity=1.0):
     )
 
 def make_car(x_center: float) -> list:
-    """Loads a local .stl 3D car model, auto-scales it, and positions it in the slot."""
+    """Loads a local .stl 3D car model, applies rotations, auto-scales, and positions it."""
     stl_files = ["car.stl", "scene.stl", "model.stl"]
     found_file = None
     
@@ -139,6 +140,30 @@ def make_car(x_center: float) -> list:
                 vertices = mesh.vertices
                 faces = mesh.faces
                 
+                # Center before rotating
+                vertices = vertices - vertices.mean(axis=0)
+                
+                # Apply rotations:
+                # 1. 90 degrees counter-clockwise (around Z axis)
+                angle_z = np.radians(90)
+                R_z = np.array([
+                    [np.cos(angle_z), -np.sin(angle_z), 0],
+                    [np.sin(angle_z), np.cos(angle_z), 0],
+                    [0, 0, 1]
+                ])
+                
+                # 2. 90 degrees flip (around X axis)
+                angle_x = np.radians(90)
+                R_x = np.array([
+                    [1, 0, 0],
+                    [0, np.cos(angle_x), -np.sin(angle_x)],
+                    [0, np.sin(angle_x), np.cos(angle_x)]
+                ])
+                
+                # Combine rotations: Rotate CCW then Flip right
+                vertices = np.dot(vertices, R_z.T)
+                vertices = np.dot(vertices, R_x.T)
+                
                 # Auto-scale to fit inside the parking slot nicely
                 extents = mesh.extents
                 max_extent = max(extents)
@@ -147,7 +172,7 @@ def make_car(x_center: float) -> list:
                     scale_factor = target_size / max_extent
                     vertices = vertices * scale_factor
                 
-                # Center and position inside the slot
+                # Final centering check
                 vertices_centered = vertices - vertices.mean(axis=0)
                 
                 car_trace = go.Mesh3d(
