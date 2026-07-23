@@ -2,10 +2,11 @@
 Car parking system using iot
 ------------------------------
 A Streamlit app that fetches live parking-slot status data from a public
-Google Sheets CSV export, renders an interactive 3D lot with detailed geometric 
-cars using Plotly, and displays a color-coded history table.
+Google Sheets CSV export, renders an interactive 3D lot with an external 
+3D car model using Plotly and Trimesh, and displays a color-coded history table.
 """
 
+import os
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -16,6 +17,13 @@ try:
     AUTOREFRESH_AVAILABLE = True
 except ImportError:
     AUTOREFRESH_AVAILABLE = False
+
+# Optional trimesh support for external 3D models.
+try:
+    import trimesh
+    TRIMESH_AVAILABLE = True
+except ImportError:
+    TRIMESH_AVAILABLE = False
 
 # ----------------------------------------------------------------------
 # Page configuration
@@ -52,7 +60,7 @@ def get_latest_status(df: pd.DataFrame):
     return slot_statuses
 
 # ----------------------------------------------------------------------
-# 3D Geometry Helpers (Plotly Detailed Car Model)
+# 3D Geometry Helpers (External Model + Fallback)
 # ----------------------------------------------------------------------
 SLOT_WIDTH = 3.0     
 SLOT_DEPTH = 5.0     
@@ -111,7 +119,32 @@ def make_box(x0, x1, y0, y1, z0, z1, color, opacity=1.0):
     )
 
 def make_car(x_center: float) -> list:
-    """Builds a highly detailed 3D car model with wheels, chassis, and roof cabin."""
+    """Loads an external 'car.obj' file if available, otherwise falls back to geometric shapes."""
+    car_file = "car.obj"
+    
+    if TRIMESH_AVAILABLE and os.path.exists(car_file):
+        try:
+            mesh = trimesh.load(car_file)
+            vertices = mesh.vertices
+            faces = mesh.faces
+
+            car_trace = go.Mesh3d(
+                x=vertices[:, 0] + x_center,
+                y=vertices[:, 1] + (SLOT_DEPTH / 2),
+                z=vertices[:, 2] + 0.05,
+                i=faces[:, 0],
+                j=faces[:, 1],
+                k=faces[:, 2],
+                color="#2563eb",
+                flatshading=False,
+                hoverinfo="skip",
+                name="",
+            )
+            return [car_trace]
+        except Exception:
+            pass # Fall back if file parsing encounters an issue
+
+    # Fallback procedural car model
     car_width = SLOT_WIDTH * 0.62
     car_length = SLOT_DEPTH * 0.65
     
@@ -123,24 +156,22 @@ def make_car(x_center: float) -> list:
 
     traces = []
 
-    # 1. Wheels (4 distinct tires)
+    # Wheels
     wheel_w = 0.12
     wheel_l = 0.9
     wheel_h = 0.28
-    
     wx_offset = car_width / 2 - 0.02
     wy_offset = car_length * 0.28
     
-    # Left and Right Wheel pairs
     for wx in [x_center - wx_offset - wheel_w, x_center + wx_offset]:
         for wy in [y_center - wy_offset, y_center + wy_offset - 0.1]:
             traces.append(make_box(wx, wx + wheel_w, wy, wy + wheel_l, 0.04, wheel_h, color="#0f172a"))
 
-    # 2. Lower Main Body / Chassis
+    # Chassis
     body = make_box(x0, x1, y0, y1, 0.25, 0.68, color="#2563eb")
     traces.append(body)
 
-    # 3. Cabin / Roof Greenhouse (Tapered)
+    # Cabin
     cabin_margin_x = car_width * 0.14
     cabin_y0 = y0 + car_length * 0.26
     cabin_y1 = y1 - car_length * 0.22
