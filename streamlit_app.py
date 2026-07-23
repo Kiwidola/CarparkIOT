@@ -2,14 +2,13 @@
 Car parking system using iot
 ------------------------------
 A Streamlit app that fetches live parking-slot status data from a public
-Google Sheets CSV export, renders an interactive 3D lot with an external 
-3D car model using Plotly and Trimesh, and displays a color-coded history table.
+Google Sheets CSV export, renders interactive Sketchfab 3D car models for 
+occupied slots, and displays a color-coded history table.
 """
 
-import os
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
 # Optional auto-refresh support.
 try:
@@ -17,13 +16,6 @@ try:
     AUTOREFRESH_AVAILABLE = True
 except ImportError:
     AUTOREFRESH_AVAILABLE = False
-
-# Optional trimesh support for external 3D models.
-try:
-    import trimesh
-    TRIMESH_AVAILABLE = True
-except ImportError:
-    TRIMESH_AVAILABLE = False
 
 # ----------------------------------------------------------------------
 # Page configuration
@@ -50,7 +42,6 @@ def fetch_parking_data(url: str) -> pd.DataFrame:
 def get_latest_status(df: pd.DataFrame):
     last_row = df.iloc[-1]
     
-    # Normalise text so "free"/"FREE"/" Free " all behave the same way.
     slot_statuses = []
     for i in range(-3, 0):
         raw_value = str(last_row.iloc[i]).strip().lower()
@@ -60,202 +51,33 @@ def get_latest_status(df: pd.DataFrame):
     return slot_statuses
 
 # ----------------------------------------------------------------------
-# 3D Geometry Helpers (External Model + Fallback)
+# Sketchfab 3D Model Embed Helper (Preserves Original Colors & Textures)
 # ----------------------------------------------------------------------
-SLOT_WIDTH = 3.0     
-SLOT_DEPTH = 5.0     
-SLOT_GAP = 1.5        
-SLOT_CENTERS = [i * (SLOT_WIDTH + SLOT_GAP) for i in range(3)] 
+def render_car_model(slot_name: str):
+    """Embeds the official Sketchfab 3D viewer component for an occupied slot."""
+    html_code = f"""
+    <div style="background-color: #1e293b; padding: 10px; border-radius: 10px; border: 2px solid #ef4444; text-align: center;">
+        <h4 style="color: #f87171; margin-bottom: 8px; font-family: sans-serif;">🚗 {slot_name}: Occupied</h4>
+        <div class="sketchfab-embed-wrapper" style="position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden;">
+            <iframe title="2003 BMW M3 GTR | Voxel" frameborder="0" allowfullscreen mozallowfullscreen="true" webkitallowfullscreen="true" allow="autoplay; fullscreen; xr-spatial-tracking" xr-spatial-tracking execution-while-out-of-viewport execution-while-not-rendered web-share src="https://sketchfab.com/models/5cf0fc2da4d74c798fc3ca2c261a1499/embed" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></iframe>
+        </div>
+        <p style="font-size: 11px; margin-top: 6px; color: #94a3b8; font-family: sans-serif;">
+            Model by <a href="https://sketchfab.com/Fenrate" target="_blank" style="color: #38bdf8;">Fenrate</a> on Sketchfab
+        </p>
+    </div>
+    """
+    components.html(html_code, height=340)
 
-def make_slot_floor_full(x_center: float, color: str) -> go.Mesh3d:
-    x0, x1 = x_center - SLOT_WIDTH / 2, x_center + SLOT_WIDTH / 2
-    y0, y1 = 0.0, SLOT_DEPTH
-    xs = [x0, x1, x1, x0]
-    ys = [y0, y0, y1, y1]
-    zs = [0, 0, 0, 0]
-    return go.Mesh3d(
-        x=xs, y=ys, z=zs,
-        i=[0, 0], j=[1, 2], k=[2, 3],
-        color=color,
-        opacity=0.85,
-        flatshading=True,
-        hoverinfo="skip",
-        showscale=False,
-        name="",
-    )
-
-def make_slot_border(x_center: float) -> go.Scatter3d:
-    x0, x1 = x_center - SLOT_WIDTH / 2, x_center + SLOT_WIDTH / 2
-    y0, y1 = 0.0, SLOT_DEPTH
-    xs = [x0, x1, x1, x0, x0]
-    ys = [y0, y0, y1, y1, y0]
-    zs = [0.01] * 5
-    return go.Scatter3d(
-        x=xs, y=ys, z=zs,
-        mode="lines",
-        line=dict(color="white", width=4),
-        hoverinfo="skip",
-        showlegend=False,
-    )
-
-def make_box(x0, x1, y0, y1, z0, z1, color, opacity=1.0):
-    xs = [x0, x0, x1, x1, x0, x0, x1, x1]
-    ys = [y0, y1, y1, y0, y0, y1, y1, y0]
-    zs = [z0, z0, z0, z0, z1, z1, z1, z1]
-
-    i_idx = [0, 0, 4, 4, 0, 0, 1, 1, 2, 2, 3, 3]
-    j_idx = [1, 2, 5, 6, 1, 5, 2, 6, 3, 7, 0, 4]
-    k_idx = [2, 3, 6, 7, 5, 4, 6, 5, 7, 6, 4, 7]
-
-    return go.Mesh3d(
-        x=xs, y=ys, z=zs,
-        i=i_idx, j=j_idx, k=k_idx,
-        color=color,
-        opacity=opacity,
-        flatshading=True,
-        hoverinfo="skip",
-        showscale=False,
-        name="",
-    )
-
-def make_car(x_center: float) -> list:
-    """Loads an external 3D model and displays any errors if it fails."""
-    car_files = ["scene.gltf", "scene.glb", "scene.obj", "model.obj", "car.obj", "car.gltf"]
-    found_file = None
-    
-    for f in car_files:
-        if os.path.exists(f):
-            found_file = f
-            break
-    
-    if not TRIMESH_AVAILABLE:
-        st.error("Trimesh library is not installed. Run: pip install trimesh")
-        return []
-
-    if not found_file:
-        st.error("No 3D car model file found in the folder! Make sure 'scene.gltf' or 'scene.obj' is in the same directory as app.py.")
-        # Fallback to procedural shape so app doesn't break
-        return get_fallback_car(x_center)
-
-    try:
-        loaded = trimesh.load(found_file)
-        
-        if isinstance(loaded, trimesh.Scene):
-            mesh = loaded.dump(concatenate=True)
-        else:
-            mesh = loaded
-            
-        if not isinstance(mesh, trimesh.Trimesh) or len(mesh.vertices) == 0:
-            st.error(f"Loaded {found_file}, but the mesh contains no vertices.")
-            return get_fallback_car(x_center)
-
-        vertices = mesh.vertices
-        faces = mesh.faces
-        
-        # Auto-scale and center
-        extents = mesh.extents
-        max_extent = max(extents)
-        if max_extent > 0:
-            target_size = SLOT_DEPTH * 0.65
-            scale_factor = target_size / max_extent
-            vertices = vertices * scale_factor
-        
-        vertices_centered = vertices - vertices.mean(axis=0)
-        
-        car_trace = go.Mesh3d(
-            x=vertices_centered[:, 0] + x_center,
-            y=vertices_centered[:, 1] + (SLOT_DEPTH / 2),
-            z=vertices_centered[:, 2] + 0.35,
-            i=faces[:, 0],
-            j=faces[:, 1],
-            k=faces[:, 2],
-            color="#2563eb",
-            flatshading=False,
-            hoverinfo="skip",
-            name="",
-        )
-        return [car_trace]
-
-    except Exception as e:
-        st.error(f"Error parsing 3D model '{found_file}': {e}")
-        return get_fallback_car(x_center)
-
-def get_fallback_car(x_center: float) -> list:
-    """Procedural backup car."""
-    car_width = SLOT_WIDTH * 0.62
-    car_length = SLOT_DEPTH * 0.65
-    x0 = x_center - car_width / 2
-    x1 = x_center + car_width / 2
-    y_center = SLOT_DEPTH / 2
-    y0 = y_center - car_length / 2
-    y1 = y_center + car_length / 2
-
-    traces = []
-    wheel_w, wheel_l, wheel_h = 0.12, 0.9, 0.28
-    wx_offset, wy_offset = car_width / 2 - 0.02, car_length * 0.28
-    
-    for wx in [x_center - wx_offset - wheel_w, x_center + wx_offset]:
-        for wy in [y_center - wy_offset, y_center + wy_offset - 0.1]:
-            traces.append(make_box(wx, wx + wheel_w, wy, wy + wheel_l, 0.04, wheel_h, color="#0f172a"))
-
-    traces.append(make_box(x0, x1, y0, y1, 0.25, 0.68, color="#2563eb"))
-    cabin_margin_x = car_width * 0.14
-    traces.append(make_box(
-        x0 + cabin_margin_x, x1 - cabin_margin_x,
-        y0 + car_length * 0.26, y1 - car_length * 0.22,
-        0.68, 1.22, color="#1d4ed8",
-    ))
-    return traces
-
-def build_parking_scene(slot_statuses: list) -> go.Figure:
-    fig = go.Figure()
-
-    for idx, (x_center, status) in enumerate(zip(SLOT_CENTERS, slot_statuses)):
-        # Green if free, Red if occupied
-        floor_color = "#dc2626" if status == "Occupied" else "#16a34a"
-
-        fig.add_trace(make_slot_floor_full(x_center, floor_color))
-        fig.add_trace(make_slot_border(x_center))
-
-        if status == "Occupied":
-            for car_trace in make_car(x_center):
-                fig.add_trace(car_trace)
-
-        # Status text label
-        fig.add_trace(go.Scatter3d(
-            x=[x_center], y=[SLOT_DEPTH / 2], z=[2.2],
-            mode="text",
-            text=[status],
-            textfont=dict(size=15, color="white"),
-            hoverinfo="skip",
-            showlegend=False,
-        ))
-
-        # Slot number label
-        fig.add_trace(go.Scatter3d(
-            x=[x_center], y=[-0.5], z=[0.05],
-            mode="text",
-            text=[f"Slot {idx + 1}"],
-            textfont=dict(size=13, color="#cbd5e1"),
-            hoverinfo="skip",
-            showlegend=False,
-        ))
-
-    fig.update_layout(
-        scene=dict(
-            xaxis=dict(visible=False),
-            yaxis=dict(visible=False),
-            zaxis=dict(visible=False, range=[0, 3]),
-            aspectmode="data",
-            camera=dict(eye=dict(x=1.5, y=-1.8, z=1.2)),
-            bgcolor="rgba(0,0,0,0)",
-        ),
-        margin=dict(l=0, r=0, t=0, b=0),
-        paper_bgcolor="rgba(0,0,0,0)",
-        showlegend=False,
-        height=480,
-    )
-    return fig
+def render_empty_slot(slot_name: str):
+    """Renders a clean placeholder card for a free parking slot."""
+    html_code = f"""
+    <div style="background-color: #064e3b; padding: 40px 10px; border-radius: 10px; border: 2px solid #22c55e; text-align: center; height: 280px; display: flex; flex-direction: column; justify-content: center;">
+        <h3 style="color: #4ade80; margin: 0; font-family: sans-serif;">🅿️ {slot_name}</h3>
+        <p style="color: #86efac; font-size: 18px; font-weight: bold; margin-top: 10px; font-family: sans-serif;">STATUS: FREE</p>
+        <p style="color: #d1fae5; font-size: 13px; font-family: sans-serif;">Ready for parking</p>
+    </div>
+    """
+    components.html(html_code, height=340)
 
 # ----------------------------------------------------------------------
 # App layout & Execution
@@ -286,10 +108,17 @@ def main():
         st.error(f"Could not fetch live data: {fetch_error}")
         return
 
-    # --- 3D Visualization ---
-    st.caption("Click and drag to rotate the 3D parking lot model")
-    fig = build_parking_scene(slot_statuses)
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    # --- Live 3D Slot Display ---
+    st.caption("Live Interactive Parking Slots (Powered by Sketchfab 3D Viewer)")
+    
+    cols = st.columns(3)
+    for idx, (col, status) in enumerate(zip(cols, slot_statuses)):
+        slot_name = f"Slot {idx + 1}"
+        with col:
+            if status == "Occupied":
+                render_car_model(slot_name)
+            else:
+                render_empty_slot(slot_name)
 
     # --- History Table (Bottom) ---
     st.divider()
