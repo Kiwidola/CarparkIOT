@@ -119,32 +119,57 @@ def make_box(x0, x1, y0, y1, z0, z1, color, opacity=1.0):
     )
 
 def make_car(x_center: float) -> list:
-    """Loads an external 'car.obj' file if available, otherwise falls back to geometric shapes."""
-    car_file = "scene.gltf"
+    """Safely loads an external 3D model, handles multi-part scenes, and auto-scales it."""
+    car_files = ["car.obj", "scene.obj", "model.obj", "car.gltf", "car.glb"]
+    found_file = None
     
-    if TRIMESH_AVAILABLE and os.path.exists(car_file):
+    for f in car_files:
+        if os.path.exists(f):
+            found_file = f
+            break
+    
+    if TRIMESH_AVAILABLE and found_file:
         try:
-            mesh = trimesh.load(car_file)
-            vertices = mesh.vertices
-            faces = mesh.faces
-
-            car_trace = go.Mesh3d(
-                x=vertices[:, 0] + x_center,
-                y=vertices[:, 1] + (SLOT_DEPTH / 2),
-                z=vertices[:, 2] + 0.05,
-                i=faces[:, 0],
-                j=faces[:, 1],
-                k=faces[:, 2],
-                color="#2563eb",
-                flatshading=False,
-                hoverinfo="skip",
-                name="",
-            )
-            return [car_trace]
+            loaded = trimesh.load(found_file)
+            
+            # Handle multi-part Sketchfab scenes vs single meshes
+            if isinstance(loaded, trimesh.Scene):
+                mesh = loaded.dump(concatenate=True)
+            else:
+                mesh = loaded
+                
+            if isinstance(mesh, trimesh.Trimesh) and len(mesh.vertices) > 0:
+                vertices = mesh.vertices
+                faces = mesh.faces
+                
+                # Auto-scale the model to fit nicely inside the parking slot dimensions
+                extents = mesh.extents
+                max_extent = max(extents)
+                if max_extent > 0:
+                    target_size = SLOT_DEPTH * 0.65
+                    scale_factor = target_size / max_extent
+                    vertices = vertices * scale_factor
+                
+                # Center and position it inside the slot
+                vertices_centered = vertices - vertices.mean(axis=0)
+                
+                car_trace = go.Mesh3d(
+                    x=vertices_centered[:, 0] + x_center,
+                    y=vertices_centered[:, 1] + (SLOT_DEPTH / 2),
+                    z=vertices_centered[:, 2] + 0.35, # Lift slightly above the floor
+                    i=faces[:, 0],
+                    j=faces[:, 1],
+                    k=faces[:, 2],
+                    color="#2563eb",
+                    flatshading=False,
+                    hoverinfo="skip",
+                    name="",
+                )
+                return [car_trace]
         except Exception:
             pass # Fall back if file parsing encounters an issue
 
-    # Fallback procedural car model
+    # Fallback procedural car model if file is missing or fails
     car_width = SLOT_WIDTH * 0.62
     car_length = SLOT_DEPTH * 0.65
     
@@ -155,7 +180,7 @@ def make_car(x_center: float) -> list:
     y1 = y_center + car_length / 2
 
     traces = []
-
+    
     # Wheels
     wheel_w = 0.12
     wheel_l = 0.9
@@ -167,20 +192,14 @@ def make_car(x_center: float) -> list:
         for wy in [y_center - wy_offset, y_center + wy_offset - 0.1]:
             traces.append(make_box(wx, wx + wheel_w, wy, wy + wheel_l, 0.04, wheel_h, color="#0f172a"))
 
-    # Chassis
-    body = make_box(x0, x1, y0, y1, 0.25, 0.68, color="#2563eb")
-    traces.append(body)
-
-    # Cabin
+    # Chassis & Cabin
+    traces.append(make_box(x0, x1, y0, y1, 0.25, 0.68, color="#2563eb"))
     cabin_margin_x = car_width * 0.14
-    cabin_y0 = y0 + car_length * 0.26
-    cabin_y1 = y1 - car_length * 0.22
-    cabin = make_box(
+    traces.append(make_box(
         x0 + cabin_margin_x, x1 - cabin_margin_x,
-        cabin_y0, cabin_y1,
+        y0 + car_length * 0.26, y1 - car_length * 0.22,
         0.68, 1.22, color="#1d4ed8",
-    )
-    traces.append(cabin)
+    ))
 
     return traces
 
