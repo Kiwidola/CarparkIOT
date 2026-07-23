@@ -120,7 +120,8 @@ def make_box(x0, x1, y0, y1, z0, z1, color, opacity=1.0):
 
 def make_car(x_center: float) -> list:
     """Safely loads an external 3D model, handles multi-part scenes, and auto-scales it."""
-    car_files = ["car.obj", "scene.gltf", "model.obj", "car.gltf", "car.glb"]
+    # Expanded list of common Sketchfab export filenames
+    car_files = ["scene.gltf", "scene.glb", "scene.obj", "model.obj", "car.obj", "car.gltf", "car.glb"]
     found_file = None
     
     for f in car_files:
@@ -166,10 +167,11 @@ def make_car(x_center: float) -> list:
                     name="",
                 )
                 return [car_trace]
-        except Exception:
-            pass # Fall back if file parsing encounters an issue
+        except Exception as e:
+            st.warning(f"Found '{found_file}', but error parsing 3D mesh: {e}")
 
-    # Fallback procedural car model if file is missing or fails
+    # Fallback procedural car model if file is missing
+    # (If you see this, check that your model file is in the same directory as app.py)
     car_width = SLOT_WIDTH * 0.62
     car_length = SLOT_DEPTH * 0.65
     
