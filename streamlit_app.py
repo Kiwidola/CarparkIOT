@@ -2,7 +2,7 @@
 Car parking system using iot
 ------------------------------
 A Streamlit app that fetches live parking-slot status data from a public
-Google Sheets CSV export, renders an interactive 3D lot with corrected .stl car model orientation, 
+Google Sheets CSV export, renders an interactive 3D lot with correctly oriented .stl car models, 
 and displays a color-coded history table.
 """
 
@@ -60,7 +60,7 @@ def get_latest_status(df: pd.DataFrame):
     return slot_statuses
 
 # ----------------------------------------------------------------------
-# 3D Geometry Helpers (.STL Model with Corrected Orientation + Fallback)
+# 3D Geometry Helpers (.STL Model with Fixed Orientation + Fallback)
 # ----------------------------------------------------------------------
 SLOT_WIDTH = 3.0     
 SLOT_DEPTH = 5.0     
@@ -119,7 +119,7 @@ def make_box(x0, x1, y0, y1, z0, z1, color, opacity=1.0):
     )
 
 def make_car(x_center: float) -> list:
-    """Loads a local .stl 3D car model, lays it flat on the ground, faces it forward, and positions it."""
+    """Loads a local .stl 3D car model, fixes the upside-down and facing direction, and positions it."""
     stl_files = ["car.stl", "scene.stl", "model.stl"]
     found_file = None
     
@@ -143,14 +143,24 @@ def make_car(x_center: float) -> list:
                 # Center before rotating
                 vertices = vertices - vertices.mean(axis=0)
                 
-                # Correct orientation: Rotate -90 degrees around X-axis to lay the car flat on the ground
-                angle_x = np.radians(-90)
+                # Apply corrected rotations:
+                # 1. Rotate around Z by 270 degrees to correct heading direction
+                angle_z = np.radians(270)
+                R_z = np.array([
+                    [np.cos(angle_z), -np.sin(angle_z), 0],
+                    [np.sin(angle_z), np.cos(angle_z), 0],
+                    [0, 0, 1]
+                ])
+                
+                # 2. Rotate around X by 90 degrees to flip it right-side up onto its wheels
+                angle_x = np.radians(90)
                 R_x = np.array([
                     [1, 0, 0],
                     [0, np.cos(angle_x), -np.sin(angle_x)],
                     [0, np.sin(angle_x), np.cos(angle_x)]
                 ])
                 
+                vertices = np.dot(vertices, R_z.T)
                 vertices = np.dot(vertices, R_x.T)
                 
                 # Auto-scale to fit inside the parking slot nicely
