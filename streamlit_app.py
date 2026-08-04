@@ -9,7 +9,6 @@ from datetime import datetime
 import pandas as pd
 import requests
 import streamlit as st
-import plotly.graph_objects as go
 
 # --------------------------------------------------------------------------
 # Config
@@ -172,7 +171,7 @@ div[data-testid="stButton"] > button[kind="primary"]:hover {
 .is-occupied .bay-status-label { color: var(--occupied); }
 .bay-substatus { color:var(--text-dimmer); font-size:11px; margin-top:2px; font-family:'IBM Plex Mono',monospace; }
 
-/* ---- Contact (UPDATED) ---- */
+/* ---- Contact (UPDATED FOR UNIFIED CARDS) ---- */
 .contact-card { 
   display:flex; align-items:center; gap:16px; 
   background:var(--panel); border:1px solid var(--border);
@@ -195,11 +194,6 @@ div[data-testid="stButton"] > button[kind="primary"]:hover {
 .feature-title { font-weight:600; font-size:14.5px; margin-bottom:4px; }
 .feature-text { color:var(--text-dim); font-size:13px; line-height:1.6; margin:0; }
 
-.step-card { background:var(--panel-2); border:1px solid var(--border); border-radius:12px; padding:16px; height:100%;}
-.step-number { font-family:'IBM Plex Mono',monospace; color:var(--accent); font-size:12px; }
-.step-title { font-weight:600; font-size:14.5px; margin:6px 0 4px; }
-.step-text { color:var(--text-dim); font-size:12.5px; line-height:1.6; margin:0; }
-
 .footer-note { text-align:center; color:var(--text-dimmer); font-size:11.5px; margin-top: 30px; }
 </style>
 """
@@ -217,7 +211,6 @@ def fetch_data() -> pd.DataFrame:
     df = df.iloc[:, :5].copy()
     df.columns = ["timestamp", "log_type", "spot1", "spot2", "spot3"][: df.shape[1]]
     
-    # 1. FIX: Parse timestamps and forcefully sort chronologically
     df["ts"] = pd.to_datetime(df["timestamp"], dayfirst=True, errors="coerce")
     df = df.sort_values(by="ts").reset_index(drop=True)
     return df
@@ -411,12 +404,6 @@ def render_history():
     for col in bay_cols:
         hist[col] = hist[col].str.lower()
     hist["Occupied"] = hist[bay_cols].apply(lambda r: sum(v == "occupied" for v in r), axis=1)
-    hist["Free"] = hist[bay_cols].apply(lambda r: sum(v == "free" for v in r), axis=1)
-
-    # To avoid rendering thousands of points, sample down if needed while preserving trend
-    if len(hist) > 400:
-        step = max(1, len(hist) // 400)
-        hist = hist.iloc[::step]
 
     records = len(df)
     total_bays = len(BAY_LABELS)
@@ -438,49 +425,16 @@ def render_history():
                 unsafe_allow_html=True,
             )
 
-    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-    
-    # --- CHART UPDATE ---
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.markdown('<div class="panel-title">Occupancy Over Time</div>', unsafe_allow_html=True)
+    # Graph removed based on user request.
 
-    fig = go.Figure()
-    
-    # 2. FIX: Replaced mode="lines" with a Step Chart (shape='hv') and removed area fill
-    fig.add_trace(go.Scatter(
-        x=hist["ts"], y=hist["Free"], name="Free", mode="lines",
-        line=dict(color="#34d97a", width=2.5, shape='hv'),
-    ))
-    fig.add_trace(go.Scatter(
-        x=hist["ts"], y=hist["Occupied"], name="Occupied", mode="lines",
-        line=dict(color="#ff5d6c", width=2.5, shape='hv'),
-    ))
-    
-    fig.update_layout(
-        height=360,
-        margin=dict(l=10, r=10, t=10, b=10),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#8a96b8", family="IBM Plex Mono"),
-        xaxis=dict(showgrid=False, tickfont=dict(size=11)),
-        yaxis=dict(showgrid=True, gridcolor="#1e2944", tickfont=dict(size=11), dtick=1),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, font=dict(color="#8a96b8")),
-        hovermode="x unified",
-    )
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    # --- TABLE UPDATE ---
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
     st.markdown('<div class="panel">', unsafe_allow_html=True)
     st.markdown('<div class="panel-title">Recent Activity Log</div>', unsafe_allow_html=True)
     
-    # 3. FIX: Filter the top 50 descending, format columns, and render in standard Streamlit dataframe component
     recent_df = df.dropna(subset=["ts"]).sort_values(by="ts", ascending=False).head(50)
     display_df = recent_df[["timestamp", "log_type", "spot1", "spot2", "spot3"]].copy()
     display_df.columns = ["Timestamp", "Log Type", "Spot 1", "Spot 2", "Spot 3"]
     
-    # st.dataframe inherently scrolls vertically when height is applied
     st.dataframe(display_df, use_container_width=True, hide_index=True, height=400)
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -497,15 +451,14 @@ def render_contact():
 
     c1, c2 = st.columns(2)
     
-    # 4. FIX: Use clean Lucide-style SVGs mapped directly into the UI components
     phone_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>'
-    
     email_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"></rect><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path></svg>'
 
+    # Both icons use 'tone-neutral' to match the blue theme shown in your screenshot
     with c1:
         st.markdown(
             f'<a class="contact-card" href="tel:+660932639626">'
-            f'<div class="contact-icon-box tone-free">{phone_svg}</div>'
+            f'<div class="contact-icon-box tone-neutral">{phone_svg}</div>'
             f'<div class="contact-details"><span class="contact-label">Phone</span>'
             f'<span class="contact-value">+66 093 263 9626</span></div></a>',
             unsafe_allow_html=True,
@@ -513,7 +466,7 @@ def render_contact():
     with c2:
         st.markdown(
             f'<a class="contact-card" href="mailto:kiwi0096@abachiangmai.com">'
-            f'<div class="contact-icon-box tone-amber">{email_svg}</div>'
+            f'<div class="contact-icon-box tone-neutral">{email_svg}</div>'
             f'<div class="contact-details"><span class="contact-label">Email</span>'
             f'<span class="contact-value">kiwi0096@abachiangmai.com</span></div></a>',
             unsafe_allow_html=True,
@@ -566,25 +519,6 @@ def render_about():
                 unsafe_allow_html=True,
             )
     st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.markdown('<div class="panel-title">How it works</div>', unsafe_allow_html=True)
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-    s1, s2, s3 = st.columns(3)
-    steps = [
-        (s1, "01", "Sense", "A sensor above each bay detects vehicle presence and stamps the moment."),
-        (s2, "02", "Log", "The reading is appended as a new row to the published spreadsheet."),
-        (s3, "03", "Visualize", "The dashboard fetches the sheet, grabs the latest row, and updates the grid."),
-    ]
-    for col, num, title, text in steps:
-        with col:
-            st.markdown(
-                f'<div class="step-card"><span class="step-number">{num}</span>'
-                f'<div class="step-title">{title}</div>'
-                f'<p class="step-text">{text}</p></div>',
-                unsafe_allow_html=True,
-            )
-    st.markdown("</div>", unsafe_allow_html=True)
 
 # --------------------------------------------------------------------------
 # Router
