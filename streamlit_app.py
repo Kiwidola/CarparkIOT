@@ -11,12 +11,6 @@ import requests
 import streamlit as st
 import plotly.graph_objects as go
 
-try:
-    from streamlit_autorefresh import st_autorefresh
-    HAS_AUTOREFRESH = True
-except ImportError:
-    HAS_AUTOREFRESH = False
-
 # --------------------------------------------------------------------------
 # Config
 # --------------------------------------------------------------------------
@@ -25,7 +19,6 @@ CSV_URL = (
     "https://docs.google.com/spreadsheets/d/e/2PACX-1vRzZ4yMJDfD8GF3mxFffCaJ1"
     "HtPvT4g1bLyUeszj1ioFaxgvYw1oyvKXSpJgnzovyFzMGOf0f0z5tzZ/pub?output=csv"
 )
-REFRESH_MS = 15_000
 BAY_LABELS = ["P-01", "P-02", "P-03"]
 
 st.set_page_config(
@@ -34,9 +27,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
-
-if HAS_AUTOREFRESH:
-    st_autorefresh(interval=REFRESH_MS, key="data_refresh")
 
 if "page" not in st.session_state:
     st.session_state.page = "dashboard"
@@ -210,7 +200,7 @@ st.markdown(CSS, unsafe_allow_html=True)
 # Data
 # --------------------------------------------------------------------------
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=5, show_spinner=False)
 def fetch_data() -> pd.DataFrame:
     resp = requests.get(CSV_URL, timeout=10)
     resp.raise_for_status()
@@ -220,7 +210,6 @@ def fetch_data() -> pd.DataFrame:
     df["ts"] = pd.to_datetime(df["timestamp"], dayfirst=True, errors="coerce")
     return df
 
-
 def load_data():
     try:
         df = fetch_data()
@@ -229,31 +218,6 @@ def load_data():
         return df, "live"
     except Exception:
         return None, "error"
-
-
-df, status = load_data()
-last_fetched = datetime.now()
-
-bay_cols = ["spot1", "spot2", "spot3"]
-bays = []
-if df is not None and not df.empty:
-    latest = df.iloc[-1]
-    for i, col in enumerate(bay_cols):
-        raw = str(latest.get(col, "")).strip()
-        is_free = raw.lower() == "free"
-        bays.append({
-            "id": BAY_LABELS[i],
-            "status": "free" if is_free else ("unknown" if raw == "" else "occupied"),
-            "raw": raw or "No signal",
-        })
-    latest_ts = latest["ts"]
-else:
-    latest_ts = None
-
-free_count = sum(1 for b in bays if b["status"] == "free")
-occupied_count = sum(1 for b in bays if b["status"] == "occupied")
-total_bays = len(bays)
-occupancy_rate = round(occupied_count / total_bays * 100) if total_bays else 0
 
 # --------------------------------------------------------------------------
 # Top navigation
@@ -289,7 +253,33 @@ st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 # Page: Live Dashboard
 # --------------------------------------------------------------------------
 
+@st.fragment(run_every=5)
 def render_dashboard():
+    df, status = load_data()
+    
+    bay_cols = ["spot1", "spot2", "spot3"]
+    bays = []
+    
+    if df is not None and not df.empty:
+        latest = df.iloc[-1]
+        for i, col in enumerate(bay_cols):
+            raw = str(latest.get(col, "")).strip()
+            is_free = raw.lower() == "free"
+            bays.append({
+                "id": BAY_LABELS[i],
+                "status": "free" if is_free else ("unknown" if raw == "" else "occupied"),
+                "raw": raw or "No signal",
+            })
+        latest_ts = latest["ts"]
+    else:
+        latest_ts = None
+        bays = [{"id": b, "status": "unknown", "raw": "No signal"} for b in BAY_LABELS]
+
+    free_count = sum(1 for b in bays if b["status"] == "free")
+    occupied_count = sum(1 for b in bays if b["status"] == "occupied")
+    total_bays = len(bays)
+    occupancy_rate = round(occupied_count / total_bays * 100) if total_bays else 0
+
     left, right = st.columns([3, 2])
     with left:
         st.markdown('<div class="page-title">Live Dashboard</div>', unsafe_allow_html=True)
@@ -311,7 +301,7 @@ def render_dashboard():
     if status == "error":
         st.markdown(
             '<div class="error-banner">Couldn\'t reach the sensor feed. Retrying automatically '
-            'every 15 seconds &mdash; the dashboard will resume the moment the sheet responds.</div>',
+            'every 5 seconds &mdash; the dashboard will resume the moment the sheet responds.</div>',
             unsafe_allow_html=True,
         )
 
@@ -383,12 +373,14 @@ def render_dashboard():
                 )
         st.markdown("</div>", unsafe_allow_html=True)
 
-
 # --------------------------------------------------------------------------
 # Page: History
 # --------------------------------------------------------------------------
 
+@st.fragment(run_every=5)
 def render_history():
+    df, status = load_data()
+    
     st.markdown('<div class="page-title">Occupancy History</div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="page-subtitle">Trends derived from every logged reading in the sensor feed</div>',
@@ -402,6 +394,7 @@ def render_history():
         )
         return
 
+    bay_cols = ["spot1", "spot2", "spot3"]
     hist = df.dropna(subset=["ts"]).copy()
     for col in bay_cols:
         hist[col] = hist[col].str.lower()
@@ -413,6 +406,7 @@ def render_history():
         hist = hist.iloc[::step]
 
     records = len(df)
+    total_bays = len(BAY_LABELS)
     peak_occupied = int(hist["Occupied"].max()) if not hist.empty else 0
     avg_occupied = round(hist["Occupied"].mean(), 1) if not hist.empty else 0.0
 
@@ -458,7 +452,6 @@ def render_history():
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
     st.markdown("</div>", unsafe_allow_html=True)
 
-
 # --------------------------------------------------------------------------
 # Page: Contact
 # --------------------------------------------------------------------------
@@ -497,7 +490,6 @@ def render_contact():
         unsafe_allow_html=True,
     )
 
-
 # --------------------------------------------------------------------------
 # Page: About
 # --------------------------------------------------------------------------
@@ -535,7 +527,6 @@ def render_about():
                 f'<p class="feature-text">{text}</p></div>',
                 unsafe_allow_html=True,
             )
-        # keep spacing consistent between the two rows
     st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
 
     st.markdown('<div class="panel">', unsafe_allow_html=True)
@@ -556,7 +547,6 @@ def render_about():
                 unsafe_allow_html=True,
             )
     st.markdown("</div>", unsafe_allow_html=True)
-
 
 # --------------------------------------------------------------------------
 # Router
