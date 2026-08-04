@@ -19,6 +19,8 @@ CSV_URL = (
     "HtPvT4g1bLyUeszj1ioFaxgvYw1oyvKXSpJgnzovyFzMGOf0f0z5tzZ/pub?output=csv"
 )
 BAY_LABELS = ["P-01", "P-02", "P-03"]
+BAY_COLS = ["spot1", "spot2", "spot3"]
+EXPECTED_COLUMNS = ["timestamp", "log_type", "spot1", "spot2", "spot3"]
 
 st.set_page_config(
     page_title="IoT Car Parking System Viewer",
@@ -171,6 +173,43 @@ div[data-testid="stButton"] > button[kind="primary"]:hover {
 .is-occupied .bay-status-label { color: var(--occupied); }
 .bay-substatus { color:var(--text-dimmer); font-size:11px; margin-top:2px; font-family:'IBM Plex Mono',monospace; }
 
+/* ---- Contact page ---- */
+.contact-card {
+  display:flex; align-items:center; gap:14px;
+  background: var(--panel); border:1px solid var(--border); border-radius:14px;
+  padding:18px; text-decoration:none; color:inherit;
+  transition: all .15s ease; backdrop-filter: blur(10px);
+}
+.contact-card:hover {
+  border-color: rgba(79,140,255,0.5);
+  background: rgba(79,140,255,0.06);
+  transform: translateY(-1px);
+}
+.contact-icon-box {
+  width:44px; height:44px; min-width:44px; border-radius:12px;
+  display:flex; align-items:center; justify-content:center;
+  background: rgba(79,140,255,0.14); color:var(--accent);
+}
+.contact-details { display:flex; flex-direction:column; gap:2px; }
+.contact-label { color:var(--text-dimmer); font-size:11.5px; letter-spacing:.06em; text-transform:uppercase; }
+.contact-value { font-weight:600; font-size:15px; color:var(--text); font-family:'IBM Plex Mono',monospace; }
+.contact-arrow { margin-left:auto; color:var(--text-dimmer); font-size:16px; }
+
+.hours-row {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:9px 0; border-bottom:1px solid var(--border-soft); font-size:13.5px;
+}
+.hours-row:last-child { border-bottom:none; }
+.hours-day { color:var(--text-dim); }
+.hours-time { font-family:'IBM Plex Mono',monospace; color:var(--text); }
+
+.status-pill {
+  display:inline-flex; align-items:center; gap:6px;
+  background: var(--free-soft); border:1px solid rgba(52,217,122,0.35);
+  color: var(--free); font-size:12px; font-weight:600;
+  padding:5px 12px; border-radius:999px;
+}
+
 /* ---- About ---- */
 .feature-card { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:18px; height: 100%;}
 .feature-icon { width:38px; height:38px; border-radius:10px; background: rgba(79,140,255,0.14); color:var(--accent);
@@ -193,8 +232,16 @@ def fetch_data() -> pd.DataFrame:
     resp.raise_for_status()
     df = pd.read_csv(io.StringIO(resp.text), header=None, dtype=str, keep_default_na=False)
     df = df.iloc[:, :5].copy()
-    df.columns = ["timestamp", "log_type", "spot1", "spot2", "spot3"][: df.shape[1]]
-    
+
+    # BUG FIX: if the published sheet ever has fewer than 5 columns, the old
+    # code silently dropped "spot2"/"spot3" from df.columns, which then
+    # raised a KeyError anywhere the code assumed those columns existed
+    # (e.g. render_history's hist[col].str.lower() loop). We now always
+    # label exactly the columns present, then reindex up to the full
+    # expected shape so downstream code can safely assume all 5 exist.
+    df.columns = EXPECTED_COLUMNS[: df.shape[1]]
+    df = df.reindex(columns=EXPECTED_COLUMNS, fill_value="")
+
     df["ts"] = pd.to_datetime(df["timestamp"], dayfirst=True, errors="coerce")
     df = df.sort_values(by="ts").reset_index(drop=True)
     return df
@@ -245,13 +292,12 @@ st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 @st.fragment(run_every=5)
 def render_dashboard():
     df, status = load_data()
-    
-    bay_cols = ["spot1", "spot2", "spot3"]
+
     bays = []
-    
+
     if df is not None and not df.empty:
         latest = df.iloc[-1]
-        for i, col in enumerate(bay_cols):
+        for i, col in enumerate(BAY_COLS):
             raw = str(latest.get(col, "")).strip()
             is_free = raw.lower() == "free"
             bays.append({
@@ -343,9 +389,8 @@ def render_dashboard():
             unsafe_allow_html=True,
         )
 
-        bay_data = bays if bays else [{"id": b, "status": "unknown", "raw": "No signal"} for b in BAY_LABELS]
         cols = st.columns(3)
-        for col, bay in zip(cols, bay_data):
+        for col, bay in zip(cols, bays):
             with col:
                 status_class = f"is-{bay['status']}"
                 icon = "✅" if bay["status"] == "free" else ("🚗" if bay["status"] == "occupied" else "❔")
@@ -369,7 +414,7 @@ def render_dashboard():
 @st.fragment(run_every=5)
 def render_history():
     df, status = load_data()
-    
+
     st.markdown('<div class="page-title">Occupancy History</div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="page-subtitle">Trends derived from every logged reading in the sensor feed</div>',
@@ -383,21 +428,34 @@ def render_history():
         )
         return
 
-    bay_cols = ["spot1", "spot2", "spot3"]
     hist = df.dropna(subset=["ts"]).copy()
-    for col in bay_cols:
-        hist[col] = hist[col].str.lower()
-    hist["Occupied"] = hist[bay_cols].apply(lambda r: sum(v == "occupied" for v in r), axis=1)
+
+    # BUG FIX: the original code called hist[col].str.lower() directly, which
+    # raises if a value ended up as a non-string (e.g. NaN) after reindexing
+    # missing columns in fetch_data. fillna("") first guarantees .str.lower()
+    # always has a string to work on.
+    for col in BAY_COLS:
+        hist[col] = hist[col].fillna("").astype(str).str.lower()
+
+    hist["Occupied"] = hist[BAY_COLS].apply(lambda r: sum(v == "occupied" for v in r), axis=1)
 
     records = len(df)
     total_bays = len(BAY_LABELS)
-    peak_occupied = int(hist["Occupied"].max()) if not hist.empty else 0
-    avg_occupied = round(hist["Occupied"].mean(), 1) if not hist.empty else 0.0
+
+    # BUG FIX: hist could still be empty here (all timestamps parsed to NaT
+    # but df itself non-empty), which made hist["Occupied"].max() return NaN
+    # and int(NaN) raise a ValueError. Guard both peak and average the same way.
+    if not hist.empty:
+        peak_occupied = int(hist["Occupied"].max())
+        avg_occupied = round(hist["Occupied"].mean(), 1)
+    else:
+        peak_occupied = 0
+        avg_occupied = 0.0
 
     m1, m2, m3 = st.columns(3)
     for col, tone, icon, label, value in [
         (m1, "neutral", "🗂️", "Records Logged", records),
-        (m2, "occupied", "📈", "Peak Occupied", f"{peak_occupied} / {total_bays or 3}"),
+        (m2, "occupied", "📈", "Peak Occupied", f"{peak_occupied} / {total_bays}"),
         (m3, "amber", "📊", "Average Occupied", avg_occupied),
     ]:
         with col:
@@ -412,59 +470,111 @@ def render_history():
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
     st.markdown('<div class="panel">', unsafe_allow_html=True)
     st.markdown('<div class="panel-title">Recent Activity Log</div>', unsafe_allow_html=True)
-    
+
     recent_df = df.dropna(subset=["ts"]).sort_values(by="ts", ascending=False).head(50)
     display_df = recent_df[["timestamp", "log_type", "spot1", "spot2", "spot3"]].copy()
     display_df.columns = ["Timestamp", "Log Type", "Spot 1", "Spot 2", "Spot 3"]
-    
+
     st.dataframe(display_df, use_container_width=True, hide_index=True, height=400)
     st.markdown("</div>", unsafe_allow_html=True)
 
 # --------------------------------------------------------------------------
-# Page: Contact (Commented Out)
+# Page: Contact
 # --------------------------------------------------------------------------
 
 def render_contact():
-    # TODO: Contact page contents commented out per request
-    """
     st.markdown('<div class="page-title">Contact</div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="page-subtitle">Questions about a reading, an outage, or the sensor hardware &mdash; reach out directly</div>',
         unsafe_allow_html=True,
     )
 
-    c1, c2 = st.columns(2)
-    
-    phone_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>'
-    email_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"></rect><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path></svg>'
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
+    phone_svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" '
+        'fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 '
+        '19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 '
+        '2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 '
+        '2.81.7A2 2 0 0 1 22 16.92z"></path></svg>'
+    )
+    email_svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" '
+        'fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
+        '<rect width="20" height="16" x="2" y="4" rx="2"></rect>'
+        '<path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path></svg>'
+    )
+    pin_svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" '
+        'fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path>'
+        '<circle cx="12" cy="10" r="3"></circle></svg>'
+    )
+
+    c1, c2 = st.columns(2)
     with c1:
         st.markdown(
             f'<a class="contact-card" href="tel:+660932639626">'
-            f'<div class="contact-icon-box tone-neutral">{phone_svg}</div>'
+            f'<div class="contact-icon-box">{phone_svg}</div>'
             f'<div class="contact-details"><span class="contact-label">Phone</span>'
-            f'<span class="contact-value">+66 093 263 9626</span></div></a>',
+            f'<span class="contact-value">+66 093 263 9626</span></div>'
+            f'<span class="contact-arrow">&rarr;</span></a>',
             unsafe_allow_html=True,
         )
     with c2:
         st.markdown(
             f'<a class="contact-card" href="mailto:kiwi0096@abachiangmai.com">'
-            f'<div class="contact-icon-box tone-neutral">{email_svg}</div>'
+            f'<div class="contact-icon-box">{email_svg}</div>'
             f'<div class="contact-details"><span class="contact-label">Email</span>'
-            f'<span class="contact-value">kiwi0096@abachiangmai.com</span></div></a>',
+            f'<span class="contact-value">kiwi0096@abachiangmai.com</span></div>'
+            f'<span class="contact-arrow">&rarr;</span></a>',
             unsafe_allow_html=True,
         )
 
     st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-    st.markdown(
-        '<div class="panel"><p style="color:var(--text-dim); font-size:13.5px; line-height:1.6; margin:0;">'
-        'For fastest response on a live incident (a bay stuck showing the wrong status, or the feed '
-        'going offline), call directly. For general questions about the system or a partnership '
-        'enquiry, email works best.</p></div>',
-        unsafe_allow_html=True,
-    )
-    """
-    pass
+
+    c3, c4 = st.columns([3, 2])
+    with c3:
+        st.markdown('<div class="panel" style="height:100%;">', unsafe_allow_html=True)
+        st.markdown('<div class="panel-title">Getting in touch</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<p style="color:var(--text-dim); font-size:13.5px; line-height:1.75; margin:10px 0 16px;">'
+            'For a live incident &mdash; a bay stuck showing the wrong status, or the feed going '
+            'offline &mdash; call directly for the fastest response. For general questions about the '
+            'system, integration, or a partnership enquiry, email works best and usually gets a reply '
+            'within one business day.</p>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f'<div style="display:flex; align-items:center; gap:8px; color:var(--text-dimmer); font-size:12.5px;">'
+            f'<span style="color:var(--accent);">{pin_svg}</span>Chiang Mai, Thailand</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with c4:
+        st.markdown('<div class="panel" style="height:100%;">', unsafe_allow_html=True)
+        st.markdown('<div class="panel-title">Support hours</div>', unsafe_allow_html=True)
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+        hours = [
+            ("Mon &ndash; Fri", "08:00 &ndash; 20:00"),
+            ("Saturday", "09:00 &ndash; 17:00"),
+            ("Sunday", "On-call only"),
+        ]
+        rows = "".join(
+            f'<div class="hours-row"><span class="hours-day">{day}</span>'
+            f'<span class="hours-time">{time}</span></div>'
+            for day, time in hours
+        )
+        st.markdown(rows, unsafe_allow_html=True)
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        st.markdown(
+            '<span class="status-pill"><span class="live-dot" style="width:6px;height:6px;"></span>'
+            'Support currently online</span>',
+            unsafe_allow_html=True,
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # --------------------------------------------------------------------------
 # Page: About
