@@ -171,22 +171,6 @@ div[data-testid="stButton"] > button[kind="primary"]:hover {
 .is-occupied .bay-status-label { color: var(--occupied); }
 .bay-substatus { color:var(--text-dimmer); font-size:11px; margin-top:2px; font-family:'IBM Plex Mono',monospace; }
 
-/* ---- Contact (UPDATED FOR UNIFIED CARDS) ---- */
-.contact-card { 
-  display:flex; align-items:center; gap:16px; 
-  background:var(--panel); border:1px solid var(--border);
-  border-radius:14px; padding:20px; text-decoration:none; color:var(--text); 
-  transition: border-color 0.2s ease;
-}
-.contact-card:hover { border-color: rgba(79,140,255,0.4); }
-.contact-icon-box { 
-  width:48px; height:48px; min-width:48px; border-radius:12px; 
-  display:flex; align-items:center; justify-content:center; 
-}
-.contact-details { display:flex; flex-direction:column; gap:4px; }
-.contact-label { color:var(--text-dim); font-size:12px; text-transform:uppercase; letter-spacing:.05em; font-weight:600;}
-.contact-value { font-size:16px; font-weight:600; color:var(--text); }
-
 /* ---- About ---- */
 .feature-card { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:18px; height: 100%;}
 .feature-icon { width:38px; height:38px; border-radius:10px; background: rgba(79,140,255,0.14); color:var(--accent);
@@ -425,8 +409,6 @@ def render_history():
                 unsafe_allow_html=True,
             )
 
-    # Graph removed based on user request.
-
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
     st.markdown('<div class="panel">', unsafe_allow_html=True)
     st.markdown('<div class="panel-title">Recent Activity Log</div>', unsafe_allow_html=True)
@@ -439,10 +421,12 @@ def render_history():
     st.markdown("</div>", unsafe_allow_html=True)
 
 # --------------------------------------------------------------------------
-# Page: Contact
+# Page: Contact (Commented Out)
 # --------------------------------------------------------------------------
 
 def render_contact():
+    # TODO: Contact page contents commented out per request
+    """
     st.markdown('<div class="page-title">Contact</div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="page-subtitle">Questions about a reading, an outage, or the sensor hardware &mdash; reach out directly</div>',
@@ -454,7 +438,6 @@ def render_contact():
     phone_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>'
     email_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"></rect><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path></svg>'
 
-    # Both icons use 'tone-neutral' to match the blue theme shown in your screenshot
     with c1:
         st.markdown(
             f'<a class="contact-card" href="tel:+660932639626">'
@@ -480,6 +463,8 @@ def render_contact():
         'enquiry, email works best.</p></div>',
         unsafe_allow_html=True,
     )
+    """
+    pass
 
 # --------------------------------------------------------------------------
 # Page: About
