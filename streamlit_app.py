@@ -172,12 +172,21 @@ div[data-testid="stButton"] > button[kind="primary"]:hover {
 .is-occupied .bay-status-label { color: var(--occupied); }
 .bay-substatus { color:var(--text-dimmer); font-size:11px; margin-top:2px; font-family:'IBM Plex Mono',monospace; }
 
-/* ---- Contact ---- */
-.contact-card { display:flex; align-items:center; gap:14px; background:var(--panel); border:1px solid var(--border);
-  border-radius:14px; padding:18px; text-decoration:none; color:var(--text); }
-.contact-icon-box { width:42px; height:42px; min-width:42px; border-radius:11px; display:flex; align-items:center; justify-content:center; font-size:19px;}
-.contact-label { color:var(--text-dimmer); font-size:11.5px; text-transform:uppercase; letter-spacing:.06em; }
-.contact-value { font-size:15px; font-weight:600; margin-top:2px; }
+/* ---- Contact (UPDATED) ---- */
+.contact-card { 
+  display:flex; align-items:center; gap:16px; 
+  background:var(--panel); border:1px solid var(--border);
+  border-radius:14px; padding:20px; text-decoration:none; color:var(--text); 
+  transition: border-color 0.2s ease;
+}
+.contact-card:hover { border-color: rgba(79,140,255,0.4); }
+.contact-icon-box { 
+  width:48px; height:48px; min-width:48px; border-radius:12px; 
+  display:flex; align-items:center; justify-content:center; 
+}
+.contact-details { display:flex; flex-direction:column; gap:4px; }
+.contact-label { color:var(--text-dim); font-size:12px; text-transform:uppercase; letter-spacing:.05em; font-weight:600;}
+.contact-value { font-size:16px; font-weight:600; color:var(--text); }
 
 /* ---- About ---- */
 .feature-card { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:18px; height: 100%;}
@@ -207,7 +216,10 @@ def fetch_data() -> pd.DataFrame:
     df = pd.read_csv(io.StringIO(resp.text), header=None, dtype=str, keep_default_na=False)
     df = df.iloc[:, :5].copy()
     df.columns = ["timestamp", "log_type", "spot1", "spot2", "spot3"][: df.shape[1]]
+    
+    # 1. FIX: Parse timestamps and forcefully sort chronologically
     df["ts"] = pd.to_datetime(df["timestamp"], dayfirst=True, errors="coerce")
+    df = df.sort_values(by="ts").reset_index(drop=True)
     return df
 
 def load_data():
@@ -401,8 +413,9 @@ def render_history():
     hist["Occupied"] = hist[bay_cols].apply(lambda r: sum(v == "occupied" for v in r), axis=1)
     hist["Free"] = hist[bay_cols].apply(lambda r: sum(v == "free" for v in r), axis=1)
 
-    if len(hist) > 200:
-        step = max(1, len(hist) // 200)
+    # To avoid rendering thousands of points, sample down if needed while preserving trend
+    if len(hist) > 400:
+        step = max(1, len(hist) // 400)
         hist = hist.iloc[::step]
 
     records = len(df)
@@ -426,18 +439,23 @@ def render_history():
             )
 
     st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+    
+    # --- CHART UPDATE ---
     st.markdown('<div class="panel">', unsafe_allow_html=True)
     st.markdown('<div class="panel-title">Occupancy Over Time</div>', unsafe_allow_html=True)
 
     fig = go.Figure()
+    
+    # 2. FIX: Replaced mode="lines" with a Step Chart (shape='hv') and removed area fill
     fig.add_trace(go.Scatter(
         x=hist["ts"], y=hist["Free"], name="Free", mode="lines",
-        line=dict(color="#34d97a", width=2), fill="tozeroy", fillcolor="rgba(52,217,122,0.15)",
+        line=dict(color="#34d97a", width=2.5, shape='hv'),
     ))
     fig.add_trace(go.Scatter(
         x=hist["ts"], y=hist["Occupied"], name="Occupied", mode="lines",
-        line=dict(color="#ff5d6c", width=2), fill="tozeroy", fillcolor="rgba(255,93,108,0.15)",
+        line=dict(color="#ff5d6c", width=2.5, shape='hv'),
     ))
+    
     fig.update_layout(
         height=360,
         margin=dict(l=10, r=10, t=10, b=10),
@@ -452,6 +470,20 @@ def render_history():
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
     st.markdown("</div>", unsafe_allow_html=True)
 
+    # --- TABLE UPDATE ---
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    st.markdown('<div class="panel-title">Recent Activity Log</div>', unsafe_allow_html=True)
+    
+    # 3. FIX: Filter the top 50 descending, format columns, and render in standard Streamlit dataframe component
+    recent_df = df.dropna(subset=["ts"]).sort_values(by="ts", ascending=False).head(50)
+    display_df = recent_df[["timestamp", "log_type", "spot1", "spot2", "spot3"]].copy()
+    display_df.columns = ["Timestamp", "Log Type", "Spot 1", "Spot 2", "Spot 3"]
+    
+    # st.dataframe inherently scrolls vertically when height is applied
+    st.dataframe(display_df, use_container_width=True, hide_index=True, height=400)
+    st.markdown("</div>", unsafe_allow_html=True)
+
 # --------------------------------------------------------------------------
 # Page: Contact
 # --------------------------------------------------------------------------
@@ -464,20 +496,26 @@ def render_contact():
     )
 
     c1, c2 = st.columns(2)
+    
+    # 4. FIX: Use clean Lucide-style SVGs mapped directly into the UI components
+    phone_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>'
+    
+    email_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"></rect><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path></svg>'
+
     with c1:
         st.markdown(
-            '<a class="contact-card" href="tel:+660932639626">'
-            '<span class="contact-icon-box tone-free">📞</span>'
-            '<div><div class="contact-label">Phone</div>'
-            '<div class="contact-value">+66 093 263 9626</div></div></a>',
+            f'<a class="contact-card" href="tel:+660932639626">'
+            f'<div class="contact-icon-box tone-free">{phone_svg}</div>'
+            f'<div class="contact-details"><span class="contact-label">Phone</span>'
+            f'<span class="contact-value">+66 093 263 9626</span></div></a>',
             unsafe_allow_html=True,
         )
     with c2:
         st.markdown(
-            '<a class="contact-card" href="mailto:kiwi0096@abachiangmai.com">'
-            '<span class="contact-icon-box tone-amber">✉️</span>'
-            '<div><div class="contact-label">Email</div>'
-            '<div class="contact-value">kiwi0096@abachiangmai.com</div></div></a>',
+            f'<a class="contact-card" href="mailto:kiwi0096@abachiangmai.com">'
+            f'<div class="contact-icon-box tone-amber">{email_svg}</div>'
+            f'<div class="contact-details"><span class="contact-label">Email</span>'
+            f'<span class="contact-value">kiwi0096@abachiangmai.com</span></div></a>',
             unsafe_allow_html=True,
         )
 
